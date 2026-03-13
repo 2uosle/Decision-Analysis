@@ -11,78 +11,164 @@
         <div class="hdr-logo">📊</div>
         <div class="hdr-content">
             <div class="hdr-title">Decision Analysis</div>
-            <div class="hdr-sub">Analysis & Evaluation Tool</div>
+            <div class="hdr-sub">Payoff Tables · Expected Value · Decision Trees</div>
         </div>
-        <div class="hdr-right">
-            <button class="hdr-btn" id="exportBtn">Export</button>
-            <button class="hdr-btn primary" id="analyzeBtn">Analyze</button>
+        <div class="mode-toggle">
+            <button class="mode-btn active" id="modePayoff" onclick="setMode('payoff')">📋 Payoff Table</button>
+            <button class="mode-btn" id="modeDtree" onclick="setMode('dtree')">🌳 Decision Tree</button>
+        </div>
+        <div class="hdr-right" style="position:relative;">
+            <button class="hdr-btn" id="sampleBtn">Samples ▾</button>
+            <div id="sampleMenu" class="dropdown-menu hidden">
+                <div class="dropdown-label">Payoff Table Problems</div>
+                <button onclick="loadSample('system');closeSampleMenu()">System Development (p.17)</button>
+                <button onclick="loadSample('manufacturer');closeSampleMenu()">Manufacturer Expansion (p.23)</button>
+                <button onclick="loadSample('reyes');closeSampleMenu()">Reyes Co. – Wooden Toys (p.25)</button>
+                <button onclick="loadSample('crops');closeSampleMenu()">Farmer Crops (p.27)</button>
+                <button onclick="loadSample('bike');closeSampleMenu()">Bob Bike Shop (p.29)</button>
+                <div class="dropdown-label">Decision Tree Problems</div>
+                <button onclick="loadSample('franchise');closeSampleMenu()">Franchise Investor (p.45)</button>
+                <button onclick="loadSample('wh_drug');closeSampleMenu()">WH Drug Company (p.47)</button>
+                <button onclick="loadSample('marshall');closeSampleMenu()">Marshall Company (p.50)</button>
+            </div>
+            <button class="hdr-btn" id="exportBtn">Export CSV</button>
+            <button class="hdr-btn primary" onclick="runAnalysis()">▶ Analyze</button>
         </div>
     </header>
 
-    <div class="layout">
-        <!-- Left Panel -->
+    <!-- ======================= PAYOFF TABLE MODE ======================= -->
+    <div id="payoffMode" class="layout">
         <div class="left">
             <div class="form-scroll">
-                <div class="section-title">Decision Problem</div>
-                
+                <div class="section-title">Problem Setup</div>
                 <div class="fg">
-                    <label>Decision Name</label>
-                    <input type="text" id="decisionName" placeholder="e.g., Project Investment Strategy">
+                    <label>Problem Title</label>
+                    <input type="text" id="ptTitle" placeholder="e.g., PDC Condominium Project">
                 </div>
-
                 <div class="fg">
                     <label>Description</label>
-                    <textarea id="decisionDesc" placeholder="Describe the decision context..."></textarea>
+                    <textarea id="ptDesc" placeholder="Describe the decision problem..."></textarea>
                 </div>
 
-                <div class="section-title" style="margin-top: 18px;">Alternatives</div>
-                <div id="alternativesContainer"></div>
+                <div class="section-title">Decision Alternatives</div>
+                <div id="altContainer"></div>
                 <button class="add-btn" onclick="addAlternative()">+ Add Alternative</button>
 
-                <div class="section-title" style="margin-top: 18px;">Criteria</div>
-                <div id="criteriaContainer"></div>
-                <button class="add-btn" onclick="addCriteria()">+ Add Criterion</button>
+                <div class="section-title">States of Nature</div>
+                <div class="fg-note">💡 Add probabilities to enable Expected Value &amp; EVPI analysis (must sum to 1).</div>
+                <div id="stateContainer"></div>
+                <button class="add-btn" onclick="addState()">+ Add State of Nature</button>
 
-                <button class="analyze-btn" onclick="performAnalysis()">Run Analysis</button>
+                <div class="section-title">Hurwicz Criterion</div>
+                <div class="fg">
+                    <label>Coefficient of Optimism (α = <span id="alphaVal">0.50</span>)</label>
+                    <input type="range" id="alphaSlider" min="0" max="1" step="0.01" value="0.5"
+                        oninput="updateAlpha(this.value)">
+                    <div class="alpha-labels"><span>0 — Pessimistic</span><span>1 — Optimistic</span></div>
+                </div>
+
+                <button class="analyze-btn" onclick="runAnalysis()">▶ Run Analysis</button>
             </div>
         </div>
 
-        <!-- Right Panel -->
         <div class="right">
-            <div class="tabs">
-                <button class="tab-btn active" data-tab="matrix">Decision Matrix</button>
-                <button class="tab-btn" data-tab="analysis">Analysis Results</button>
-                <button class="tab-btn" data-tab="chart">Visualization</button>
+            <div class="tabs" id="ptTabs">
+                <button class="tab-btn active" data-tab="pt-matrix">Payoff Matrix</button>
+                <button class="tab-btn" data-tab="pt-summary">Summary</button>
+                <button class="tab-btn" data-tab="pt-maximax">Maximax</button>
+                <button class="tab-btn" data-tab="pt-maximin">Maximin</button>
+                <button class="tab-btn" data-tab="pt-regret">Min. Regret</button>
+                <button class="tab-btn" data-tab="pt-hurwicz">Hurwicz</button>
+                <button class="tab-btn" data-tab="pt-laplace">Laplace</button>
+                <button class="tab-btn" data-tab="pt-ev">EV / EVPI</button>
             </div>
 
-            <div id="matrix" class="tab-pane active">
-                <div class="matrix-container">
-                    <div id="matrixContent" class="no-data">
-                        <div class="nd-icon">📋</div>
-                        <p>Create alternatives and criteria to build a decision matrix</p>
-                    </div>
-                </div>
-            </div>
-
-            <div id="analysis" class="tab-pane">
+            <div id="pt-matrix" class="tab-pane active">
                 <div class="results-container">
-                    <div id="resultsContent" class="no-data">
-                        <div class="nd-icon">📈</div>
-                        <p>Analysis results will appear here</p>
+                    <div id="matrixEditorWrap">
+                        <div class="no-data"><div class="nd-icon">📋</div><p>Add alternatives and states of nature to build the payoff matrix.</p></div>
                     </div>
                 </div>
             </div>
+            <div id="pt-summary" class="tab-pane">
+                <div class="results-container" id="summaryContent">
+                    <div class="no-data"><div class="nd-icon">📊</div><p>Run analysis to see the summary of all criteria.</p></div>
+                </div>
+            </div>
+            <div id="pt-maximax" class="tab-pane">
+                <div class="results-container" id="maximaxContent">
+                    <div class="no-data"><div class="nd-icon">📈</div><p>Run analysis to see step-by-step Maximax results.</p></div>
+                </div>
+            </div>
+            <div id="pt-maximin" class="tab-pane">
+                <div class="results-container" id="maximinContent">
+                    <div class="no-data"><div class="nd-icon">📉</div><p>Run analysis to see step-by-step Maximin results.</p></div>
+                </div>
+            </div>
+            <div id="pt-regret" class="tab-pane">
+                <div class="results-container" id="regretContent">
+                    <div class="no-data"><div class="nd-icon">😤</div><p>Run analysis to see step-by-step Minimax Regret results.</p></div>
+                </div>
+            </div>
+            <div id="pt-hurwicz" class="tab-pane">
+                <div class="results-container" id="hurwiczContent">
+                    <div class="no-data"><div class="nd-icon">⚖️</div><p>Run analysis to see step-by-step Hurwicz results.</p></div>
+                </div>
+            </div>
+            <div id="pt-laplace" class="tab-pane">
+                <div class="results-container" id="laplaceContent">
+                    <div class="no-data"><div class="nd-icon">🎲</div><p>Run analysis to see step-by-step Laplace results.</p></div>
+                </div>
+            </div>
+            <div id="pt-ev" class="tab-pane">
+                <div class="results-container" id="evContent">
+                    <div class="no-data"><div class="nd-icon">📐</div><p>Add probabilities to states of nature to enable EV &amp; EVPI analysis.</p></div>
+                </div>
+            </div>
+        </div>
+    </div>
 
-            <div id="chart" class="tab-pane">
-                <div class="chart-container">
-                    <canvas id="analysisChart"></canvas>
+    <!-- ======================= DECISION TREE MODE ======================= -->
+    <div id="dtreeMode" class="layout hidden">
+        <div class="left">
+            <div class="form-scroll">
+                <div class="section-title">Problem Setup</div>
+                <div class="fg">
+                    <label>Problem Title</label>
+                    <input type="text" id="dtTitle" placeholder="e.g., Franchise Investment Decision">
+                </div>
+                <div class="fg">
+                    <label>Description</label>
+                    <textarea id="dtDesc" placeholder="Describe the sequential decision problem..."></textarea>
+                </div>
+
+                <div class="section-title">Decision Tree Builder</div>
+                <div class="fg-note">■ Decision node &nbsp;|&nbsp; ● Chance node &nbsp;|&nbsp; ◆ Terminal (payoff)</div>
+                <div id="dtreeBuilder"></div>
+
+                <button class="analyze-btn" onclick="computeTree()">▶ Compute Tree</button>
+            </div>
+        </div>
+
+        <div class="right">
+            <div class="tabs" id="dtTabs">
+                <button class="tab-btn active" data-tab="dt-viz">Tree Diagram</button>
+                <button class="tab-btn" data-tab="dt-solution">Solution &amp; Optimal Path</button>
+            </div>
+            <div id="dt-viz" class="tab-pane active">
+                <div class="results-container" id="dtVizContent">
+                    <div class="no-data"><div class="nd-icon">🌳</div><p>Build a decision tree in the left panel, then click Compute Tree.</p></div>
+                </div>
+            </div>
+            <div id="dt-solution" class="tab-pane">
+                <div class="results-container" id="dtSolutionContent">
+                    <div class="no-data"><div class="nd-icon">✅</div><p>Compute the tree to see the optimal decision strategy.</p></div>
                 </div>
             </div>
         </div>
     </div>
 
     <div id="toast" class="toast"></div>
-
     <script src="app.js"></script>
 </body>
 </html>
