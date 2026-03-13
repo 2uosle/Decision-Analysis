@@ -14,7 +14,8 @@ const state = {
     dtree: {
         title: '',
         description: '',
-        root: null
+        root: null,
+        zoom: 1
     }
 };
 
@@ -24,6 +25,7 @@ const state = {
 document.addEventListener('DOMContentLoaded', () => {
     setupTabs('ptTabs');
     setupTabs('dtTabs');
+    setupPaneResizers();
 
     document.getElementById('ptTitle').addEventListener('input', e => state.payoff.title = e.target.value);
     document.getElementById('ptDesc').addEventListener('input', e => state.payoff.description = e.target.value);
@@ -43,6 +45,57 @@ document.addEventListener('DOMContentLoaded', () => {
     state.dtree.root = makeNode('decision', 'Initial Decision');
     renderDTreeBuilder();
 });
+
+function setupPaneResizers() {
+    const splitters = document.querySelectorAll('.splitter');
+    splitters.forEach(splitter => {
+        const layout = splitter.closest('.layout');
+        if (!layout) return;
+
+        splitter.addEventListener('mousedown', (e) => {
+            if (window.innerWidth <= 1120) return;
+
+            const rect = layout.getBoundingClientRect();
+            const min = 290;
+            const max = Math.max(min + 20, rect.width - 260);
+            const startX = e.clientX;
+            const computed = getComputedStyle(layout).getPropertyValue('--left-pane-width').trim();
+            const fallback = layout.querySelector('.left')?.getBoundingClientRect().width || 390;
+            const startWidth = parseFloat(computed) || fallback;
+
+            layout.classList.add('resizing');
+            document.body.style.userSelect = 'none';
+
+            const onMove = (moveEvt) => {
+                const dx = moveEvt.clientX - startX;
+                let next = startWidth + dx;
+                if (next < min) next = min;
+                if (next > max) next = max;
+                layout.style.setProperty('--left-pane-width', `${next}px`);
+            };
+
+            const onUp = () => {
+                layout.classList.remove('resizing');
+                document.body.style.userSelect = '';
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            };
+
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+        });
+
+        splitter.addEventListener('dblclick', () => {
+            if (window.innerWidth <= 1120) return;
+
+            const rect = layout.getBoundingClientRect();
+            const current = parseFloat(getComputedStyle(layout).getPropertyValue('--left-pane-width')) || 390;
+            const isMax = current > rect.width * 0.7;
+            const target = isMax ? 390 : Math.max(520, Math.floor(rect.width * 0.8));
+            layout.style.setProperty('--left-pane-width', `${target}px`);
+        });
+    });
+}
 
 function setMode(m) {
     state.mode = m;
@@ -788,7 +841,7 @@ function loadSample(key) {
         showToast('Sample loaded! Click Analyze to run all criteria.', true);
     } else {
         setMode('dtree');
-        state.dtree = { title: s.title, description: s.desc, root: s.tree };
+        state.dtree = { title: s.title, description: s.desc, root: s.tree, zoom: 1 };
         document.getElementById('dtTitle').value = s.title;
         document.getElementById('dtDesc').value = s.desc;
         renderDTreeBuilder();
@@ -1051,44 +1104,179 @@ function backward(node) {
 }
 
 function renderTreeViz(root) {
-    document.getElementById('dtVizContent').innerHTML =
-        `<div class="tree-viz">${renderVizNode(root, 0)}</div>`;
+    const diagram = buildTreeDiagram(root);
+    document.getElementById('dtVizContent').innerHTML = diagram;
 }
 
-function renderVizNode(node) {
-    if (!node) return '';
-    const nt = node.type;
-    const icon = nt === 'decision' ? '■' : nt === 'chance' ? '●' : '◆';
-    const cls  = nt === 'decision' ? 'viz-dec' : nt === 'chance' ? 'viz-ch' : 'viz-term';
-    const evStr = node.ev !== undefined ? fmt(node.ev.toFixed(2)) : '';
+function treeZoomIn() {
+    const z = state.dtree.zoom || 1;
+    state.dtree.zoom = Math.min(2.5, +(z + 0.1).toFixed(2));
+    renderTreeViz(state.dtree.root);
+}
 
-    let html = `<div class="viz-node ${cls}">
-        <div class="viz-node-inner">
-            <span class="viz-icon">${icon}</span>
-            <span class="viz-lbl">${esc(node.label)}</span>
-            ${node.ev !== undefined && nt !== 'terminal' ? `<span class="viz-ev">EV = ${evStr}</span>` : ''}
-            ${nt === 'terminal' ? `<span class="viz-payoff">₱ ${fmt(node.payoff)}</span>` : ''}
-        </div>`;
+function treeZoomOut() {
+    const z = state.dtree.zoom || 1;
+    state.dtree.zoom = Math.max(0.4, +(z - 0.1).toFixed(2));
+    renderTreeViz(state.dtree.root);
+}
 
-    if (node.branches?.length) {
-        html += '<div class="viz-branches">';
-        node.branches.forEach(b => {
-            const optCls = b.isOptimal ? 'viz-branch-optimal' : '';
-            html += `<div class="viz-branch ${optCls}">
-                <div class="viz-branch-lbl">
-                    ${b.isOptimal ? '<span class="opt-star">★ OPTIMAL</span>' : ''}
-                    ${esc(b.label)}
-                    ${b.probability !== null ? `<span class="prob-badge">P=${b.probability}</span>` : ''}
-                    ${b.cost > 0 ? `<span class="cost-badge">Cost: ${fmt(b.cost)}</span>` : ''}
-                    ${b.childEV !== undefined ? `<span class="viz-branchev">→ ${fmt(b.childEV.toFixed(2))}</span>` : ''}
-                </div>
-                ${renderVizNode(b.child)}
-            </div>`;
-        });
-        html += '</div>';
+function treeZoomReset() {
+    state.dtree.zoom = 1;
+    renderTreeViz(state.dtree.root);
+}
+
+function buildTreeDiagram(root) {
+    if (!root) {
+        return `<div class="no-data"><div class="nd-icon">🌳</div><p>Build a decision tree first.</p></div>`;
     }
-    html += '</div>';
-    return html;
+
+    const nodeW = 240;
+    const nodeH = 56;
+    const levelGap = 300;
+    const leafGap = 130;
+    const marginX = 40;
+    const marginY = 40;
+
+    const positioned = [];
+    const edges = [];
+    let leafCounter = 0;
+    let maxDepth = 0;
+
+    function place(node, depth) {
+        if (!node) return { x: 0, y: 0 };
+        if (depth > maxDepth) maxDepth = depth;
+
+        const children = node.branches?.filter(b => b.child) || [];
+        let y;
+
+        if (children.length === 0) {
+            y = leafCounter * leafGap;
+            leafCounter += 1;
+        } else {
+            const ys = [];
+            children.forEach((b, idx) => {
+                const childPos = place(b.child, depth + 1);
+                ys.push(childPos.y);
+                edges.push({
+                    fromId: node.id,
+                    toId: b.child.id,
+                    label: b.label || 'branch',
+                    probability: b.probability,
+                    cost: b.cost || 0,
+                    isOptimal: !!b.isOptimal,
+                    branchIndex: idx,
+                    siblingCount: children.length
+                });
+            });
+            y = ys.reduce((a, b) => a + b, 0) / ys.length;
+        }
+
+        const x = depth * levelGap;
+        positioned.push({ id: node.id, node, x, y });
+        return { x, y };
+    }
+
+    place(root, 0);
+
+    const posMap = {};
+    positioned.forEach(p => { posMap[p.id] = p; });
+
+    const width = marginX * 2 + (maxDepth * levelGap) + nodeW + 80;
+    const rawHeight = Math.max(1, leafCounter) * leafGap;
+    const height = marginY * 2 + Math.max(rawHeight, 140);
+    const zoom = state.dtree.zoom || 1;
+    const renderedWidth = Math.round(width * zoom);
+    const renderedHeight = Math.round(height * zoom);
+
+    const lines = edges.map(e => {
+        const from = posMap[e.fromId];
+        const to = posMap[e.toId];
+        const x1 = marginX + from.x + nodeW;
+        const y1 = marginY + from.y + nodeH / 2;
+        const x2 = marginX + to.x;
+        const y2 = marginY + to.y + nodeH / 2;
+        const cx1 = x1 + 34;
+        const cx2 = x2 - 34;
+
+        const mx = x1 + (x2 - x1) * 0.42;
+        const siblingCenter = (e.siblingCount - 1) / 2;
+        const siblingOffset = (e.branchIndex - siblingCenter) * 18;
+        const directionOffset = y2 >= y1 ? -8 : 8;
+        const my = y1 + (y2 - y1) * 0.42 + siblingOffset + directionOffset;
+        const parts = [svgEsc(shortLabel(e.label, 26))];
+        if (e.probability !== null && e.probability !== undefined) parts.push(`P=${e.probability}`);
+        if (e.cost > 0) parts.push(`Cost ${fmt(e.cost)}`);
+        const edgeLabel = parts.join(' • ');
+        const labelW = Math.max(120, Math.min(220, edgeLabel.length * 6.3 + 22));
+
+        return `
+            <path d="M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}" class="tree-edge ${e.isOptimal ? 'tree-edge-opt' : ''}" />
+            <g transform="translate(${mx}, ${my - 12})">
+            <rect x="-${(labelW / 2).toFixed(1)}" y="-12" width="${labelW.toFixed(1)}" height="24" rx="8" class="tree-edge-label-bg ${e.isOptimal ? 'tree-edge-label-bg-opt' : ''}"></rect>
+                <text x="0" y="4" text-anchor="middle" class="tree-edge-label">${svgEsc(edgeLabel)}</text>
+            </g>`;
+    }).join('');
+
+    const nodes = positioned.map(p => {
+        const nt = p.node.type;
+        const icon = nt === 'decision' ? '■' : nt === 'chance' ? '●' : '◆';
+        const nodeClass = nt === 'decision' ? 'tree-node-decision' : nt === 'chance' ? 'tree-node-chance' : 'tree-node-terminal';
+        const subtitle = nt === 'terminal'
+            ? `Payoff: ${fmt(p.node.payoff)}`
+            : `EV: ${p.node.ev !== undefined ? fmt(p.node.ev.toFixed(2)) : '—'}`;
+        const label = shortLabel(p.node.label || 'Node', 30);
+        const x = marginX + p.x;
+        const y = marginY + p.y;
+
+        return `
+            <g transform="translate(${x}, ${y})" class="tree-node ${nodeClass}">
+                <rect x="0" y="0" width="${nodeW}" height="${nodeH}" rx="12" class="tree-node-box"></rect>
+                <text x="12" y="21" class="tree-node-title">${icon} ${svgEsc(label)}</text>
+                <text x="12" y="41" class="tree-node-sub">${svgEsc(subtitle)}</text>
+            </g>`;
+    }).join('');
+
+    return `
+        <div class="tree-viz-shell">
+            <div class="tree-viz-toolbar">
+                <div class="tree-viz-help">■ Decision node &nbsp; ● Chance node &nbsp; ◆ Terminal node</div>
+                <div class="tree-zoom-controls">
+                    <button type="button" class="tree-zoom-btn" onclick="treeZoomOut()" title="Zoom out">−</button>
+                    <span class="tree-zoom-readout">${Math.round(zoom * 100)}%</span>
+                    <button type="button" class="tree-zoom-btn" onclick="treeZoomIn()" title="Zoom in">+</button>
+                    <button type="button" class="tree-zoom-btn reset" onclick="treeZoomReset()" title="Reset zoom">Reset</button>
+                </div>
+            </div>
+            <div class="tree-viz-canvas">
+                <svg viewBox="0 0 ${width} ${height}" width="${renderedWidth}" height="${renderedHeight}" class="tree-svg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Decision tree diagram">
+                    <defs>
+                        <marker id="treeArrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth">
+                            <path d="M0,0 L10,4 L0,8 z" fill="#7294c6"></path>
+                        </marker>
+                        <marker id="treeArrowOpt" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth">
+                            <path d="M0,0 L10,4 L0,8 z" fill="#2f9f57"></path>
+                        </marker>
+                    </defs>
+                    ${lines}
+                    ${nodes}
+                </svg>
+            </div>
+        </div>`;
+}
+
+function shortLabel(txt, maxLen) {
+    const str = String(txt || '');
+    if (str.length <= maxLen) return str;
+    return str.slice(0, Math.max(1, maxLen - 1)).trimEnd() + '…';
+}
+
+function svgEsc(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function renderTreeSolution(root) {
