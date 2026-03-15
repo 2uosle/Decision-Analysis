@@ -1106,6 +1106,54 @@ function backward(node) {
 function renderTreeViz(root) {
     const diagram = buildTreeDiagram(root);
     document.getElementById('dtVizContent').innerHTML = diagram;
+    setupTreeCanvasPan();
+}
+
+function setupTreeCanvasPan() {
+    const canvas = document.querySelector('.tree-viz-canvas');
+    if (!canvas) return;
+
+    let isPanning = false;
+    let activePointerId = null;
+    let startX = 0;
+    let startY = 0;
+    let startScrollLeft = 0;
+    let startScrollTop = 0;
+
+    canvas.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        isPanning = true;
+        activePointerId = e.pointerId;
+        startX = e.clientX;
+        startY = e.clientY;
+        startScrollLeft = canvas.scrollLeft;
+        startScrollTop = canvas.scrollTop;
+        canvas.classList.add('panning');
+        canvas.setPointerCapture(e.pointerId);
+        e.preventDefault();
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+        if (!isPanning || e.pointerId !== activePointerId) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        canvas.scrollLeft = startScrollLeft - dx;
+        canvas.scrollTop = startScrollTop - dy;
+    });
+
+    const stopPan = (e) => {
+        if (!isPanning) return;
+        if (e && activePointerId !== null && e.pointerId !== activePointerId) return;
+        isPanning = false;
+        canvas.classList.remove('panning');
+        if (activePointerId !== null) {
+            try { canvas.releasePointerCapture(activePointerId); } catch (_) {}
+        }
+        activePointerId = null;
+    };
+
+    canvas.addEventListener('pointerup', stopPan);
+    canvas.addEventListener('pointercancel', stopPan);
 }
 
 function treeZoomIn() {
@@ -1130,12 +1178,12 @@ function buildTreeDiagram(root) {
         return `<div class="no-data"><div class="nd-icon">🌳</div><p>Build a decision tree first.</p></div>`;
     }
 
-    const nodeW = 240;
-    const nodeH = 56;
-    const levelGap = 300;
-    const leafGap = 130;
-    const marginX = 40;
-    const marginY = 40;
+    const nodeW = 280;
+    const nodeH = 62;
+    const levelGap = 340;
+    const leafGap = 150;
+    const marginX = 56;
+    const marginY = 70;
 
     const positioned = [];
     const edges = [];
@@ -1188,6 +1236,24 @@ function buildTreeDiagram(root) {
     const renderedWidth = Math.round(width * zoom);
     const renderedHeight = Math.round(height * zoom);
 
+    function intersects(a, b, pad = 0) {
+        return !(
+            a.x + a.w + pad < b.x ||
+            b.x + b.w + pad < a.x ||
+            a.y + a.h + pad < b.y ||
+            b.y + b.h + pad < a.y
+        );
+    }
+
+    const nodeRects = positioned.map(p => ({
+        x: marginX + p.x,
+        y: marginY + p.y,
+        w: nodeW,
+        h: nodeH
+    }));
+
+    const occupiedLabelRects = [];
+
     const lines = edges.map(e => {
         const from = posMap[e.fromId];
         const to = posMap[e.toId];
@@ -1195,23 +1261,49 @@ function buildTreeDiagram(root) {
         const y1 = marginY + from.y + nodeH / 2;
         const x2 = marginX + to.x;
         const y2 = marginY + to.y + nodeH / 2;
-        const cx1 = x1 + 34;
-        const cx2 = x2 - 34;
+        const cx1 = x1 + 46;
+        const cx2 = x2 - 46;
 
-        const mx = x1 + (x2 - x1) * 0.42;
+        const mx = x1 + (x2 - x1) * 0.46;
         const siblingCenter = (e.siblingCount - 1) / 2;
-        const siblingOffset = (e.branchIndex - siblingCenter) * 18;
-        const directionOffset = y2 >= y1 ? -8 : 8;
-        const my = y1 + (y2 - y1) * 0.42 + siblingOffset + directionOffset;
-        const parts = [svgEsc(shortLabel(e.label, 26))];
-        if (e.probability !== null && e.probability !== undefined) parts.push(`P=${e.probability}`);
+        const siblingOffset = (e.branchIndex - siblingCenter) * 22;
+        const directionOffset = y2 >= y1 ? -10 : 10;
+        const myBase = y1 + (y2 - y1) * 0.46 + siblingOffset + directionOffset;
+
+        const cleanLabel = cleanBranchLabel(e.label);
+        const parts = [shortLabel(cleanLabel || 'Branch', 34)];
+        if (e.probability !== null && e.probability !== undefined) {
+            parts.push(`P=${formatBranchProbability(e.probability)}`);
+        }
         if (e.cost > 0) parts.push(`Cost ${fmt(e.cost)}`);
         const edgeLabel = parts.join(' • ');
-        const labelW = Math.max(120, Math.min(220, edgeLabel.length * 6.3 + 22));
+        const labelW = Math.max(132, Math.min(250, edgeLabel.length * 6.6 + 24));
+
+        const labelRect = {
+            x: mx - labelW / 2,
+            y: myBase - 12,
+            w: labelW,
+            h: 24
+        };
+
+        let step = y2 >= y1 ? -14 : 14;
+        let stepMag = 14;
+        for (let i = 0; i < 24; i++) {
+            const hitLabel = occupiedLabelRects.some(r => intersects(labelRect, r, 6));
+            const hitNode = nodeRects.some(r => intersects(labelRect, r, 5));
+            if (!hitLabel && !hitNode) break;
+            labelRect.y += step;
+            stepMag += 3;
+            step = step > 0 ? stepMag : -stepMag;
+        }
+        occupiedLabelRects.push({ ...labelRect });
+
+        const labelCx = labelRect.x + labelRect.w / 2;
+        const labelCy = labelRect.y + 12;
 
         return `
             <path d="M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}" class="tree-edge ${e.isOptimal ? 'tree-edge-opt' : ''}" />
-            <g transform="translate(${mx}, ${my - 12})">
+            <g transform="translate(${labelCx}, ${labelCy})">
             <rect x="-${(labelW / 2).toFixed(1)}" y="-12" width="${labelW.toFixed(1)}" height="24" rx="8" class="tree-edge-label-bg ${e.isOptimal ? 'tree-edge-label-bg-opt' : ''}"></rect>
                 <text x="0" y="4" text-anchor="middle" class="tree-edge-label">${svgEsc(edgeLabel)}</text>
             </g>`;
@@ -1224,7 +1316,7 @@ function buildTreeDiagram(root) {
         const subtitle = nt === 'terminal'
             ? `Payoff: ${fmt(p.node.payoff)}`
             : `EV: ${p.node.ev !== undefined ? fmt(p.node.ev.toFixed(2)) : '—'}`;
-        const label = shortLabel(p.node.label || 'Node', 30);
+        const label = shortLabel(p.node.label || 'Node', 42);
         const x = marginX + p.x;
         const y = marginY + p.y;
 
@@ -1268,6 +1360,20 @@ function shortLabel(txt, maxLen) {
     const str = String(txt || '');
     if (str.length <= maxLen) return str;
     return str.slice(0, Math.max(1, maxLen - 1)).trimEnd() + '…';
+}
+
+function cleanBranchLabel(label) {
+    return String(label || '')
+        .replace(/\(?\s*P\s*=\s*\d*\.?\d+\s*\)?/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/[•-]\s*$/g, '')
+        .trim();
+}
+
+function formatBranchProbability(p) {
+    const n = Number(p);
+    if (!isFinite(n)) return String(p);
+    return n.toFixed(2).replace(/\.00$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
 }
 
 function svgEsc(str) {

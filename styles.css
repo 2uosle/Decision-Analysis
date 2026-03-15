@@ -959,9 +959,16 @@ header {
 
 .tree-viz-canvas {
   overflow: auto;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
   background:
     radial-gradient(circle at 1px 1px, #e4ecfb 1px, transparent 1px), #fbfdff;
   background-size: 20px 20px;
+}
+
+.tree-viz-canvas.panning {
+  cursor: grabbing;
 }
 
 .tree-svg {
