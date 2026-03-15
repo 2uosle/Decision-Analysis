@@ -15,7 +15,9 @@ const state = {
         title: '',
         description: '',
         root: null,
-        zoom: 1
+        zoom: 1,
+        panX: 24,
+        panY: 24
     }
 };
 
@@ -44,6 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     state.dtree.root = makeNode('decision', 'Initial Decision');
     renderDTreeBuilder();
+    renderTreeViz(state.dtree.root);
 });
 
 function setupPaneResizers() {
@@ -841,7 +844,7 @@ function loadSample(key) {
         showToast('Sample loaded! Click Analyze to run all criteria.', true);
     } else {
         setMode('dtree');
-        state.dtree = { title: s.title, description: s.desc, root: s.tree, zoom: 1 };
+        state.dtree = { title: s.title, description: s.desc, root: s.tree, zoom: 1, panX: 24, panY: 24 };
         document.getElementById('dtTitle').value = s.title;
         document.getElementById('dtDesc').value = s.desc;
         renderDTreeBuilder();
@@ -1111,14 +1114,21 @@ function renderTreeViz(root) {
 
 function setupTreeCanvasPan() {
     const canvas = document.querySelector('.tree-viz-canvas');
+    const svg = canvas?.querySelector('.tree-svg');
     if (!canvas) return;
+    if (!svg) return;
 
     let isPanning = false;
     let activePointerId = null;
     let startX = 0;
     let startY = 0;
-    let startScrollLeft = 0;
-    let startScrollTop = 0;
+
+    function applyPan() {
+        svg.style.left = `${state.dtree.panX || 0}px`;
+        svg.style.top = `${state.dtree.panY || 0}px`;
+    }
+
+    applyPan();
 
     canvas.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
@@ -1126,8 +1136,6 @@ function setupTreeCanvasPan() {
         activePointerId = e.pointerId;
         startX = e.clientX;
         startY = e.clientY;
-        startScrollLeft = canvas.scrollLeft;
-        startScrollTop = canvas.scrollTop;
         canvas.classList.add('panning');
         canvas.setPointerCapture(e.pointerId);
         e.preventDefault();
@@ -1137,8 +1145,11 @@ function setupTreeCanvasPan() {
         if (!isPanning || e.pointerId !== activePointerId) return;
         const dx = e.clientX - startX;
         const dy = e.clientY - startY;
-        canvas.scrollLeft = startScrollLeft - dx;
-        canvas.scrollTop = startScrollTop - dy;
+        state.dtree.panX = (state.dtree.panX || 0) + dx;
+        state.dtree.panY = (state.dtree.panY || 0) + dy;
+        startX = e.clientX;
+        startY = e.clientY;
+        applyPan();
     });
 
     const stopPan = (e) => {
@@ -1340,7 +1351,7 @@ function buildTreeDiagram(root) {
                 </div>
             </div>
             <div class="tree-viz-canvas">
-                <svg viewBox="0 0 ${width} ${height}" width="${renderedWidth}" height="${renderedHeight}" class="tree-svg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Decision tree diagram">
+                <svg viewBox="0 0 ${width} ${height}" width="${renderedWidth}" height="${renderedHeight}" class="tree-svg" style="left:${state.dtree.panX || 24}px; top:${state.dtree.panY || 24}px;" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Decision tree diagram">
                     <defs>
                         <marker id="treeArrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth">
                             <path d="M0,0 L10,4 L0,8 z" fill="#7294c6"></path>
