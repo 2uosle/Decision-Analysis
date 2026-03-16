@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTabs('ptTabs');
     setupTabs('dtTabs');
     setupPaneResizers();
+    setupStrictNumericInputs();
 
     document.getElementById('ptTitle').addEventListener('input', e => state.payoff.title = e.target.value);
     document.getElementById('ptDesc').addEventListener('input', e => state.payoff.description = e.target.value);
@@ -188,7 +189,13 @@ function removeState(id) {
 
 function updateStateProp(id, field, val) {
     const s = state.payoff.states.find(x => x.id === id);
-    if (s) { s[field] = val; if (field === 'name') renderMatrixEditor(); }
+    if (!s) return;
+    if (field === 'probability') {
+        s[field] = sanitizeNumericInputValue(val, 'probability');
+        return;
+    }
+    s[field] = val;
+    if (field === 'name') renderMatrixEditor();
 }
 
 function renderStates() {
@@ -203,7 +210,7 @@ function renderStates() {
                         oninput="updateStateProp('${s.id}', 'name', this.value)">
                     <div class="prob-row">
                         <label class="prob-label">P(state):</label>
-                        <input type="number" class="item-input prob-inp"
+                        <input type="number" class="item-input prob-inp" data-num-mode="probability" inputmode="decimal"
                             placeholder="e.g. 0.40"
                             min="0" max="1" step="0.01"
                             value="${s.probability}"
@@ -251,7 +258,7 @@ function renderMatrixEditor() {
                             <td class="alt-name-cell">${esc(a.name || 'Alternative')}</td>
                             ${sts.map(s => `
                                 <td>
-                                    <input type="number" class="score-input"
+                                    <input type="number" class="score-input" data-num-mode="signed-decimal" inputmode="decimal"
                                         value="${state.payoff.payoffs[a.id][s.id]}"
                                         onchange="updatePayoff('${a.id}', '${s.id}', this.value)">
                                 </td>`).join('')}
@@ -263,7 +270,7 @@ function renderMatrixEditor() {
 
 function updatePayoff(aId, sId, val) {
     if (!state.payoff.payoffs[aId]) state.payoff.payoffs[aId] = {};
-    state.payoff.payoffs[aId][sId] = parseFloat(val) || 0;
+    state.payoff.payoffs[aId][sId] = parseFloat(sanitizeNumericInputValue(val, 'signed-decimal')) || 0;
 }
 
 function updateAlpha(val) {
@@ -971,7 +978,7 @@ function renderNodeForm(node, parentId, branchId, depth, isRoot) {
     if (nt === 'terminal') {
         html += `<div class="payoff-row">
             <label class="prob-label">Payoff:</label>
-            <input type="number" class="item-input payoff-inp" value="${node.payoff ?? 0}"
+            <input type="number" class="item-input payoff-inp" data-num-mode="signed-decimal" inputmode="decimal" value="${node.payoff ?? 0}"
                 oninput="updateNodePayoff('${node.id}', this.value)">
         </div>`;
     }
@@ -984,10 +991,10 @@ function renderNodeForm(node, parentId, branchId, depth, isRoot) {
                     <input type="text" class="item-input branch-lbl-inp" placeholder="Branch label"
                         value="${esc(b.label)}" oninput="updateBranchLabel('${node.id}','${b.id}',this.value)">
                     ${nt === 'chance' ? `
-                        <input type="number" class="item-input prob-inp" placeholder="P" min="0" max="1" step="0.01"
+                        <input type="number" class="item-input prob-inp" data-num-mode="probability" inputmode="decimal" placeholder="P" min="0" max="1" step="0.01"
                             title="Probability" value="${b.probability ?? ''}"
                             oninput="updateBranchProb('${node.id}','${b.id}',this.value)">` : ''}
-                    <input type="number" class="item-input cost-inp" placeholder="Cost" title="Cost/investment for this branch"
+                    <input type="number" class="item-input cost-inp" data-num-mode="decimal" inputmode="decimal" placeholder="Cost" title="Cost/investment for this branch"
                         value="${b.cost || 0}" oninput="updateBranchCost('${node.id}','${b.id}',this.value)">
                     <button class="del-btn" onclick="removeBranch('${node.id}','${b.id}')">✕</button>
                 </div>
@@ -1019,10 +1026,86 @@ function findBranch(root, nodeId, branchId) {
 }
 
 function updateNodeLabel(id, val) { const n = findNode(state.dtree.root, id); if (n) n.label = val; }
-function updateNodePayoff(id, val) { const n = findNode(state.dtree.root, id); if (n) n.payoff = parseFloat(val) || 0; }
+function updateNodePayoff(id, val) { const n = findNode(state.dtree.root, id); if (n) n.payoff = parseFloat(sanitizeNumericInputValue(val, 'signed-decimal')) || 0; }
 function updateBranchLabel(nid, bid, val) { const b = findBranch(state.dtree.root, nid, bid); if (b) b.label = val; }
-function updateBranchProb(nid, bid, val) { const b = findBranch(state.dtree.root, nid, bid); if (b) b.probability = parseFloat(val) || null; }
-function updateBranchCost(nid, bid, val) { const b = findBranch(state.dtree.root, nid, bid); if (b) b.cost = parseFloat(val) || 0; }
+function updateBranchProb(nid, bid, val) {
+    const b = findBranch(state.dtree.root, nid, bid);
+    if (!b) return;
+    const sanitized = sanitizeNumericInputValue(val, 'probability');
+    b.probability = sanitized === '' ? null : parseFloat(sanitized);
+}
+function updateBranchCost(nid, bid, val) { const b = findBranch(state.dtree.root, nid, bid); if (b) b.cost = parseFloat(sanitizeNumericInputValue(val, 'decimal')) || 0; }
+
+function setupStrictNumericInputs() {
+    document.addEventListener('keydown', (e) => {
+        const input = e.target;
+        if (!(input instanceof HTMLInputElement) || !input.dataset.numMode) return;
+
+        const allowedKeys = ['Backspace', 'Delete', 'Tab', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+        if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) return;
+
+        const mode = input.dataset.numMode;
+        const isDigit = /^[0-9]$/.test(e.key);
+        const isDot = e.key === '.';
+        const isMinus = e.key === '-';
+
+        if (isDigit) return;
+        if (isDot && !input.value.includes('.')) return;
+        if (isMinus && mode === 'signed-decimal' && input.selectionStart === 0 && !input.value.includes('-')) return;
+
+        e.preventDefault();
+    });
+
+    document.addEventListener('paste', (e) => {
+        const input = e.target;
+        if (!(input instanceof HTMLInputElement) || !input.dataset.numMode) return;
+
+        e.preventDefault();
+        const pasted = (e.clipboardData || window.clipboardData).getData('text');
+        const sanitized = sanitizeNumericInputValue(pasted, input.dataset.numMode);
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? input.value.length;
+        input.setRangeText(sanitized, start, end, 'end');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    document.addEventListener('input', (e) => {
+        const input = e.target;
+        if (!(input instanceof HTMLInputElement) || !input.dataset.numMode) return;
+        const sanitized = sanitizeNumericInputValue(input.value, input.dataset.numMode);
+        if (input.value !== sanitized) input.value = sanitized;
+    });
+}
+
+function sanitizeNumericInputValue(value, mode) {
+    const source = String(value ?? '');
+    let out = '';
+    let hasDot = false;
+    let hasMinus = false;
+
+    for (let i = 0; i < source.length; i++) {
+        const ch = source[i];
+        if (ch >= '0' && ch <= '9') {
+            out += ch;
+            continue;
+        }
+        if (ch === '.' && !hasDot) {
+            hasDot = true;
+            out += ch;
+            continue;
+        }
+        if (ch === '-' && mode === 'signed-decimal' && !hasMinus && out.length === 0) {
+            hasMinus = true;
+            out += ch;
+        }
+    }
+
+    if (mode === 'probability' || mode === 'decimal') {
+        out = out.replace(/-/g, '');
+    }
+
+    return out;
+}
 
 function addBranch(nodeId) {
     const node = findNode(state.dtree.root, nodeId);
