@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SEC Inventory Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">SEC Elevators and Escalators</p>
+        <h1>Inventory Tracker</h1>
+        <p id="syncStatus" class="sync-status">Local mode</p>
+      </div>
+      <button id="exportBtn" class="btn btn-secondary">Export CSV</button>
+    </header>
+
+    <main class="layout">
+      <section class="card stats">
+        <article>
+          <p>Total Items</p>
+          <h2 id="totalItems">0</h2>
+        </article>
+        <article>
+          <p>Total Quantity</p>
+          <h2 id="totalQuantity">0</h2>
+        </article>
+        <article>
+          <p>Transactions Today</p>
+          <h2 id="todayTransactions">0</h2>
+        </article>
+      </section>
+
+      <section class="card view-switcher">
+        <p class="switcher-title">Choose What You Want To Do</p>
+        <div class="switcher-actions">
+          <button id="viewDashboardBtn" class="btn btn-primary" type="button">Dashboard</button>
+          <button id="viewTrackBtn" class="btn btn-secondary" type="button">Track Stock</button>
+          <button id="viewItemsBtn" class="btn btn-secondary" type="button">Manage Items</button>
+        </div>
+      </section>
+
+      <section id="viewDashboard" class="view-panel">
+        <section class="card">
+          <div class="inventory-head">
+            <h3>Inventory Dashboard</h3>
+            <p class="subtle">Neat view by category with filters</p>
+          </div>
+
+          <div class="filter-bar">
+            <label>
+              Search
+              <input id="dashSearch" placeholder="Search name, category, location" />
+            </label>
+            <label>
+              Category
+              <select id="dashCategory">
+                <option value="">All categories</option>
+              </select>
+            </label>
+            <label>
+              Location
+              <select id="dashLocation">
+                <option value="">All locations</option>
+              </select>
+            </label>
+            <label>
+              Availability
+              <select id="dashAvailability">
+                <option value="">All</option>
+                <option value="in-stock">In Stock</option>
+                <option value="out-of-stock">Out of Stock</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="dashboard-meta">
+            <span id="dashVisibleCount">0 items shown</span>
+            <span id="dashCategoryCount">0 categories</span>
+          </div>
+
+          <div id="dashboardGroups" class="dashboard-groups"></div>
+        </section>
+      </section>
+
+      <section id="viewTrack" class="view-panel hidden">
+        <section class="card">
+          <h3>Stock Movement</h3>
+          <p class="subtle">Fast mode: type item and quantity, then press Enter.</p>
+
+          <form id="quickActionForm" class="quick-command-form">
+            <label>
+              Quick Command
+              <input
+                id="quickActionInput"
+                placeholder="Door sensor +2  |  Door sensor -1  |  Door sensor =30"
+                autocomplete="off"
+                required
+              />
+            </label>
+            <label>
+              Staff Name (optional)
+              <input id="quickActor" placeholder="Defaults to Store Team" />
+            </label>
+            <button class="btn btn-primary" type="submit">Apply Instantly</button>
+          </form>
+
+          <details class="advanced-panel">
+            <summary>Advanced Manual Entry</summary>
+          <form id="transactionForm" class="form">
+            <label>
+              Type Item Name (Smart)
+              <input id="txnItemSearch" list="itemNamesList" placeholder="Type exact item name to auto-match" />
+              <datalist id="itemNamesList"></datalist>
+            </label>
+            <label>
+              Item
+              <select id="txnItemId" required></select>
+            </label>
+
+            <div id="txnQuickAdd" class="quick-add hidden">
+              <p class="quick-add-title">Quick Add New Item</p>
+              <div class="mini-grid">
+                <label>
+                  Item Name
+                  <input id="quickName" placeholder="Door lock" />
+                </label>
+                <label>
+                  Category
+                  <input id="quickCategory" placeholder="Mechanical" />
+                </label>
+                <label>
+                  Unit
+                  <input id="quickUnit" placeholder="pcs" />
+                </label>
+                <label>
+                  Starting Qty
+                  <input id="quickQty" type="number" min="0" placeholder="0" />
+                </label>
+                <label>
+                  Location
+                  <input id="quickLocation" placeholder="Store B - Rack 1" />
+                </label>
+              </div>
+            </div>
+
+            <label>
+              Type
+              <select id="txnType" required>
+                <option value="IN">IN</option>
+                <option value="OUT">OUT</option>
+                <option value="ADJUST">ADJUST</option>
+              </select>
+            </label>
+            <label>
+              Quantity
+              <input id="txnQty" type="number" min="1" required />
+            </label>
+            <label>
+              Requested By
+              <input id="txnRequester" placeholder="Optional" />
+            </label>
+            <label>
+              Note
+              <input id="txnNote" placeholder="Site / reason" />
+            </label>
+            <button class="btn btn-primary" type="submit">Record Transaction</button>
+          </form>
+          </details>
+        </section>
+
+        <section class="card">
+          <h3>Recent Transactions</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Item</th>
+                  <th>Type</th>
+                  <th>Qty</th>
+                  <th>Requested By</th>
+                  <th>Note</th>
+                </tr>
+              </thead>
+              <tbody id="transactionBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="viewItems" class="view-panel hidden">
+        <section class="card">
+          <h3>Add / Update Item</h3>
+          <form id="itemForm" class="form">
+            <input type="hidden" id="itemId" />
+            <label>
+              Item Name
+              <input id="itemName" required placeholder="Door sensor" />
+            </label>
+            <label>
+              Category
+              <input id="itemCategory" required placeholder="Electrical" />
+            </label>
+            <label>
+              Unit
+              <input id="itemUnit" required placeholder="pcs" />
+            </label>
+            <label>
+              Current Quantity
+              <input id="itemQty" type="number" min="0" required placeholder="30" />
+            </label>
+            <label>
+              Location
+              <input id="itemLocation" required placeholder="Store A - Shelf 2" />
+            </label>
+            <button class="btn btn-primary" type="submit">Save Item</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <div class="inventory-head">
+            <h3>Inventory</h3>
+            <input id="searchInput" placeholder="Search by name/category/location" />
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Category</th>
+                  <th>Qty</th>
+                  <th>Location</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="inventoryBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <template id="emptyState">
+      <tr>
+        <td colspan="5" class="empty">No data yet</td>
+      </tr>
+    </template>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

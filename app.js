@@ -7,9 +7,13 @@ const state = {
         title: '',
         description: '',
         alternatives: [],   // [{id, name}]
-        states: [],         // [{id, name, probability: string}]
+        states: [],         // [{id, name, probability: string, value: string}]
         payoffs: {},        // {altId: {stateId: number}}
-        alpha: 0.5
+        alpha: 0.5,
+        smart: {
+            formula: '',
+            constants: ''
+        }
     },
     dtree: {
         title: '',
@@ -32,6 +36,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('ptTitle').addEventListener('input', e => state.payoff.title = e.target.value);
     document.getElementById('ptDesc').addEventListener('input', e => state.payoff.description = e.target.value);
+    document.getElementById('smartFormula')?.addEventListener('input', e => state.payoff.smart.formula = e.target.value);
+    document.getElementById('smartConstants')?.addEventListener('input', e => state.payoff.smart.constants = e.target.value);
     document.getElementById('dtTitle').addEventListener('input', e => state.dtree.title = e.target.value);
     document.getElementById('dtDesc').addEventListener('input', e => state.dtree.description = e.target.value);
     document.getElementById('exportBtn').addEventListener('click', exportCSV);
@@ -141,7 +147,7 @@ function switchTab(tabsId, tabId) {
 
 function addAlternative() {
     const id = 'a' + Date.now();
-    state.payoff.alternatives.push({ id, name: '' });
+    state.payoff.alternatives.push({ id, name: '', value: '' });
     renderAlternatives();
     renderMatrixEditor();
 }
@@ -158,6 +164,12 @@ function updateAltName(id, val) {
     if (a) { a.name = val; renderMatrixEditor(); }
 }
 
+function updateAltValue(id, val) {
+    const a = state.payoff.alternatives.find(x => x.id === id);
+    if (!a) return;
+    a.value = sanitizeNumericInputValue(val, 'signed-decimal');
+}
+
 function renderAlternatives() {
     document.getElementById('altContainer').innerHTML =
         state.payoff.alternatives.map((a, i) => `
@@ -168,6 +180,10 @@ function renderAlternatives() {
                         placeholder="e.g., Build Small Plant"
                         value="${esc(a.name)}"
                         oninput="updateAltName('${a.id}', this.value)">
+                    <input type="number" class="item-input" data-num-mode="signed-decimal" inputmode="decimal"
+                        placeholder="Alternative value (e.g., quantity/capacity)"
+                        value="${a.value || ''}"
+                        oninput="updateAltValue('${a.id}', this.value)">
                 </div>
                 <button class="del-btn" onclick="removeAlternative('${a.id}')">✕</button>
             </div>`).join('');
@@ -175,7 +191,7 @@ function renderAlternatives() {
 
 function addState() {
     const id = 's' + Date.now();
-    state.payoff.states.push({ id, name: '', probability: '' });
+    state.payoff.states.push({ id, name: '', probability: '', value: '' });
     renderStates();
     renderMatrixEditor();
 }
@@ -194,6 +210,10 @@ function updateStateProp(id, field, val) {
         s[field] = sanitizeNumericInputValue(val, 'probability');
         return;
     }
+    if (field === 'value') {
+        s[field] = sanitizeNumericInputValue(val, 'signed-decimal');
+        return;
+    }
     s[field] = val;
     if (field === 'name') renderMatrixEditor();
 }
@@ -208,6 +228,10 @@ function renderStates() {
                         placeholder="e.g., High Demand"
                         value="${esc(s.name)}"
                         oninput="updateStateProp('${s.id}', 'name', this.value)">
+                    <input type="number" class="item-input" data-num-mode="signed-decimal" inputmode="decimal"
+                        placeholder="State value (e.g., demand level)"
+                        value="${s.value || ''}"
+                        oninput="updateStateProp('${s.id}', 'value', this.value)">
                     <div class="prob-row">
                         <label class="prob-label">P(state):</label>
                         <input type="number" class="item-input prob-inp" data-num-mode="probability" inputmode="decimal"
@@ -271,6 +295,104 @@ function renderMatrixEditor() {
 function updatePayoff(aId, sId, val) {
     if (!state.payoff.payoffs[aId]) state.payoff.payoffs[aId] = {};
     state.payoff.payoffs[aId][sId] = parseFloat(sanitizeNumericInputValue(val, 'signed-decimal')) || 0;
+}
+
+function useSmartTemplate(kind) {
+    if (kind !== 'newsvendor') return;
+
+    const formula = 'state >= alt ? (price - cost) * alt : (price - cost) * state + (salvage - cost) * (alt - state) - penalty * Math.max(state - alt, 0)';
+    const constants = 'price=200, cost=110, salvage=50, penalty=0';
+
+    state.payoff.smart.formula = formula;
+    state.payoff.smart.constants = constants;
+    const formulaEl = document.getElementById('smartFormula');
+    const constantsEl = document.getElementById('smartConstants');
+    if (formulaEl) formulaEl.value = formula;
+    if (constantsEl) constantsEl.value = constants;
+    showToast('Newsvendor template loaded. Set alt/state values, then auto-calculate.', true);
+}
+
+function parseSmartConstants(input) {
+    const out = {};
+    const txt = String(input || '').trim();
+    if (!txt) return out;
+
+    const parts = txt.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    for (const part of parts) {
+        const idx = part.indexOf('=');
+        if (idx <= 0) throw new Error(`Invalid constant: ${part}`);
+        const key = part.slice(0, idx).trim();
+        const valRaw = part.slice(idx + 1).trim();
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`Invalid constant name: ${key}`);
+        const val = Number(valRaw);
+        if (!Number.isFinite(val)) throw new Error(`Invalid numeric value for ${key}: ${valRaw}`);
+        out[key] = val;
+    }
+    return out;
+}
+
+function applySmartPayoffFormula() {
+    const alts = state.payoff.alternatives;
+    const sts = state.payoff.states;
+    if (alts.length === 0 || sts.length === 0) {
+        showToast('Add alternatives and states first', false);
+        return;
+    }
+
+    const formula = (document.getElementById('smartFormula')?.value || '').trim();
+    const constantsText = (document.getElementById('smartConstants')?.value || '').trim();
+    if (!formula) {
+        showToast('Enter a formula first', false);
+        return;
+    }
+
+    let constants;
+    try {
+        constants = parseSmartConstants(constantsText);
+    } catch (err) {
+        showToast(err.message, false);
+        return;
+    }
+
+    let fn;
+    const constKeys = Object.keys(constants);
+    const constVals = constKeys.map(k => constants[k]);
+    try {
+        fn = new Function(...constKeys, 'alt', 'state', 'i', 'j', 'p', `"use strict"; return (${formula});`);
+    } catch (err) {
+        showToast(`Formula error: ${err.message}`, false);
+        return;
+    }
+
+    for (let i = 0; i < alts.length; i++) {
+        const a = alts[i];
+        const altVal = Number(a.value || 0);
+        if (!state.payoff.payoffs[a.id]) state.payoff.payoffs[a.id] = {};
+
+        for (let j = 0; j < sts.length; j++) {
+            const s = sts[j];
+            const stateVal = Number(s.value || 0);
+            const p = Number(s.probability || 0);
+
+            let result;
+            try {
+                result = fn(...constVals, altVal, stateVal, i + 1, j + 1, p);
+            } catch (err) {
+                showToast(`Calculation error: ${err.message}`, false);
+                return;
+            }
+
+            const num = Number(result);
+            if (!Number.isFinite(num)) {
+                showToast('Formula returned non-numeric value', false);
+                return;
+            }
+            state.payoff.payoffs[a.id][s.id] = Number(num.toFixed(4));
+        }
+    }
+
+    renderMatrixEditor();
+    showToast('Payoff matrix auto-calculated from formula!', true);
 }
 
 function updateAlpha(val) {
@@ -835,13 +957,28 @@ function loadSample(key) {
             const id = 'sa' + i;
             pts[id] = {};
             s.states.forEach((st, j) => { pts[id]['ss' + j] = s.payoffs[i][j]; });
-            return { id, name };
+            return { id, name, value: '' };
         });
-        const stObjs = s.states.map((st, j) => ({ id: 'ss' + j, name: st.name, probability: st.prob }));
+        const stObjs = s.states.map((st, j) => ({ id: 'ss' + j, name: st.name, probability: st.prob, value: '' }));
 
-        state.payoff = { title: s.title, description: s.desc, alternatives: altObjs, states: stObjs, payoffs: pts, alpha: 0.5 };
+        state.payoff = {
+            title: s.title,
+            description: s.desc,
+            alternatives: altObjs,
+            states: stObjs,
+            payoffs: pts,
+            alpha: 0.5,
+            smart: {
+                formula: state.payoff.smart?.formula || '',
+                constants: state.payoff.smart?.constants || ''
+            }
+        };
         document.getElementById('ptTitle').value = s.title;
         document.getElementById('ptDesc').value = s.desc;
+        const formulaEl = document.getElementById('smartFormula');
+        const constantsEl = document.getElementById('smartConstants');
+        if (formulaEl) formulaEl.value = state.payoff.smart.formula;
+        if (constantsEl) constantsEl.value = state.payoff.smart.constants;
         document.getElementById('alphaSlider').value = 0.5;
         document.getElementById('alphaVal').textContent = '0.50';
         renderAlternatives();

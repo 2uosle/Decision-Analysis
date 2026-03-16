@@ -59,6 +59,19 @@
                 <div id="stateContainer"></div>
                 <button class="add-btn" onclick="addState()">+ Add State of Nature</button>
 
+                <div class="section-title">Smart Payoff Builder</div>
+                <div class="fg-note">Auto-fill all matrix payoffs from requirements using a formula.</div>
+                <div class="fg">
+                    <label>Formula (use: <strong>alt</strong>, <strong>state</strong>, <strong>i</strong>, <strong>j</strong>, <strong>p</strong>, constants)</label>
+                    <textarea id="smartFormula" placeholder="Example: state >= alt ? (price-cost)*alt : (price-cost)*state + (salvage-cost)*(alt-state)" style="min-height:64px;"></textarea>
+                </div>
+                <div class="fg">
+                    <label>Constants (comma-separated)</label>
+                    <input type="text" id="smartConstants" placeholder="price=200, cost=110, salvage=50, penalty=40">
+                </div>
+                <button class="add-btn" onclick="useSmartTemplate('newsvendor')">Use Newsvendor Template</button>
+                <button class="analyze-btn" onclick="applySmartPayoffFormula()">⚡ Auto-Calculate Matrix</button>
+
                 <div class="section-title">Hurwicz Criterion</div>
                 <div class="fg">
                     <label>Coefficient of Optimism (α = <span id="alphaVal">0.50</span>)</label>
